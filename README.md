@@ -34,15 +34,12 @@ liblapack
 
 ### Contents
 
-There are 9 files included:
  - delaunayfan.f90 contains the main subroutine DelaunayFan.
  - AFL.f90 contains the source code for the data structure described in Chang et. al.
  - Vector.f90 contains the source code for a dynamic multidimensional array, similar to the C++ vector objects.
  - main.f90 contains driver code generating a command line program for DelaunayFan
  - Makefile for building the code.
  - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in 2-dimensions containing 20 vertices/input points.
- - LICENSE contains a description of the MIT license.
- - README.md is this file.
  - delvor-ieeesec.pdf contains a detailed description of the algorithm.
 
 ### Compiling and Testing
@@ -55,10 +52,6 @@ Then, try running the sample executable with the provided input file:
 ```
 ./delfan 2 20 [any integer from 1-20] SAMPLE-2D-20N.dat
 ```
-
-## License
-
-This project is licensed under the MIT License. See the LICENSE file.
 
 ## Authors
 
