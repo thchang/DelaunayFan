@@ -107,7 +107,7 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 !      DGELS, DGEQP3, DGESV, DGESVD.
 ! 
 ! Primary Author: Tyler H. Chang
-! Last Update: June, 2018
+! Last Update: June, 2019
 
 USE AFL
 IMPLICIT NONE
@@ -196,12 +196,12 @@ ELSE
 END IF
 
 ! Initialize the simplex and face lists.
-CALL NEWINTVECTOR(SL, I, DIM=D+1)
+SL = INTVECTOR(DIM=D+1, ISTAT=I)
 IF (I .NE. 0) THEN
    IERR = 50
    RETURN
 END IF
-FL = NEWFACELIST(V, D, I)
+FL = NEWFACELIST(DIM=D+1, IND=V, ISTAT=I)
 IF (I .NE. 0) THEN
    IERR = 50
    RETURN
@@ -214,10 +214,10 @@ CALL MAKEFIRSTSIMP()
 IF(IERR .NE. 0) RETURN
 ! Add all the faces to the stack.
 CALL SELECTSORTSIMP()
-CALL PUSHALL(FL, SIMP, IERR)
+CALL FL%PUSHALL(SIMP, IERR)
 IF(IERR .NE. 0) RETURN
 ! Save the first simplex.
-CALL INTVECTORPUSH(SL, SIMP, IERR)
+SL%PUSH(SIMP, IERR)
 IF(IERR .NE. 0) THEN
    IERR = 50
    RETURN
@@ -226,17 +226,17 @@ END IF
 ! Loop for filling all simplices containing the vertex with index V.
 INNER : DO K = 1, IBUDGETL
 !! Debugging statements. Uncomment for step-by-step print out of progress.
-!PRINT *, 'Iteration: ', k
+!PRINT *, 'Iteration: ', K
 !PRINT *, 'Simplices:'
-!DO i=1, SL%length
-!print *, SL%dat(:,i)
+!DO I=1, SL%LENGTH()
+!PRINT *, SL%ITEM(I)
 !END DO
 !PRINT *, 'Faces:'
-!DO i=1, FL%Table%length
-!print *, FL%TABLE%dat(1:d,i)
+!DO I=1, FL%LENGTH()
+!PRINT *, FL%ITEM(I)
 !END DO
-   ! Get the top face off the stack.
-   CALL POPFACE(FL, SIMP, IERR)
+   ! Get the top face off the stack, but don't delete.
+   CALL FL%TOP(SIMP, IERR)
    IF(IERR .NE. 0) THEN
       IERR = 50
       RETURN
@@ -252,16 +252,16 @@ INNER : DO K = 1, IBUDGETL
    IF (IERR .NE. 0) RETURN
    ! Check for the extrapolation condition.
    IF (SIMP(D+1) .EQ. 0) THEN
-      CALL INTVECTORPOP(FL%TABLE, SIMP, IERR)
+      CALL FL%POP(SIMP, IERR)
       IF (IERR .NE. 0) RETURN
       CYCLE INNER
    END IF
    ! Sort the simplex indices and push all its faces to the stack.
    CALL BUBBLESORTSIMP()
-   CALL PUSHALL(FL, SIMP, IERR)
+   CALL FL%PUSHSIMP(SIMP, IERR)
    IF(IERR .NE. 0) RETURN
    ! Save the current simplex to the stack.
-   CALL INTVECTORPUSH(SL, SIMP, IERR)
+   CALL SL%PUSH(SIMP, IERR)
    IF(IERR .NE. 0) THEN
       IERR = 50
       RETURN
@@ -274,13 +274,13 @@ IF (K > IBUDGETL) THEN
 END IF
 
 ! Copy the fan into the output array.
-ALLOCATE(FAN(D+1,SL%LENGTH), STAT=I)
+ALLOCATE(FAN(D+1,SL%LENGTH()), STAT=I)
 IF(I .NE. 0) THEN
    IERR = 51
    RETURN
 END IF
-FAN(:,:) = SL%DAT(1:D+1,1:SL%LENGTH)
-CALL INTVECTORFREE(SL, I)
+FAN(:,:) = SL%DATA()
+CALL SL%FREE()
 RETURN
 
 CONTAINS ! Internal subroutines and functions.

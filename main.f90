@@ -61,6 +61,7 @@ END IF
 PRINT *, 'Fan of ', SIZE(FAN,2), ' simps built in ', FINISH, ' seconds.'
 
 ! Free the heap memory.
-DEALLOCATE(PTS, FAN, WORK)
+DEALLOCATE(PTS, FAN, WORK, STAT=ERROR)
+IF (ERROR .NE. 0) PRINT *, 'There was an error freeing memory.'
 RETURN
 END PROGRAM TEST
