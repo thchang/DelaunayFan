@@ -12,7 +12,7 @@ PUBLIC
 
 CONTAINS
 
-SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS_OPT, IBUDGET_OPT )
+SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 ! This is a serial implementation of an algorithm for computing the umbrella
 ! neighborhood of a single vertex in R^D in the Delaunay triangulation.
 ! The algorithm is fully described and analyzed in
@@ -38,7 +38,7 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS_OPT, IBUDGET_OPT )
 ! V is the index in PTS of the vertex about which to construct the umbrella
 !    neighbourhood.
 !
-! FAN(:,:) is an unallocated ALLOCATABLE array of type REAL(KIND=R8) that
+! FAN(:,:) is an unallocated ALLOCATABLE array of type INTEGER that
 !    will be allocated on output.
 !
 !
@@ -85,19 +85,19 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS_OPT, IBUDGET_OPT )
 !
 ! Optional arguments:
 !
-! EPS_OPT contains the working precision for the problem on input. By default,
-!    EPS_OPT is assigned \sqrt{\mu} where \mu denotes the unit roundoff for the
-!    machine. In general, any values that differ by less than EPS_OPT are judged
-!    as equal, and any weights that are greater than -EPS_OPT are judged as
-!    nonnegative.  EPS_OPT cannot take a value less than the default value of
+! EPS contains the working precision for the problem on input. By default,
+!    EPS is assigned \sqrt{\mu} where \mu denotes the unit roundoff for the
+!    machine. In general, any values that differ by less than EPS are judged
+!    as equal, and any weights that are greater than -EPS are judged as
+!    nonnegative.  EPS cannot take a value less than the default value of
 !    \sqrt{\mu}. If any value less than \sqrt{\mu} is supplied, the default
 !    value will be used instead automatically. 
 ! 
-! IBUDGET_OPT contains the integer valued budget for performing flips while
+! IBUDGET contains the integer valued budget for performing flips while
 !    iterating toward the simplex containing each interpolation point in Q.
 !    This prevents DelaunayFan from falling into an infinite loop when
 !    supplied with degenerate or near degenerate data.  By default,
-!    IBUDGET_OPT=50000. However, for extremely high-dimensional problems and
+!    IBUDGET=50000. However, for extremely high-dimensional problems and
 !    pathological data sets, the default value may be insufficient. 
 !
 !
@@ -120,42 +120,43 @@ INTEGER, INTENT(IN) :: V
 INTEGER, ALLOCATABLE, INTENT(OUT) :: FAN(:,:)
 INTEGER, INTENT(OUT) :: IERR
 ! Optional arguments.
-REAL(KIND=R8), INTENT(IN), OPTIONAL:: EPS_OPT
-INTEGER, INTENT(IN), OPTIONAL :: IBUDGET_OPT
+REAL(KIND=R8), INTENT(IN), OPTIONAL:: EPS
+INTEGER, INTENT(IN), OPTIONAL :: IBUDGET
 
 ! Local variables.
-INTEGER :: IBUDGET ! Local copy of IBUDGET_OPT.
+INTEGER :: IBUDGETL ! Local copy of IBUDGET.
 INTEGER :: ITMP ! Temporary value for swapping.
 INTEGER :: I, J, K ! Loop iteration variables.
 INTEGER :: LWORK ! Size of WORK array (5*D).
 REAL(KIND=R8) :: CURRRAD ! Radius of the circumball.
-REAL(KIND=R8) :: EPS ! Local copy of EPS_OPT.
+REAL(KIND=R8) :: EPSL ! Local copy of EPS.
 REAL(KIND=R8) :: MINRAD ! Smallest radius found.
 REAL(KIND=R8) :: SIDE1 ! Side of the hyperplane to flip toward.
 REAL(KIND=R8) :: SIDE2 ! Side of the hyperplane for a point.
 
 ! Local arrays requiring O(d^2) extra memory.
-INTEGER :: PIV(D)
-INTEGER :: SIMP(D+1)
-REAL(KIND=R8) :: A(D,D)
-REAL(KIND=R8) :: B(D)
-REAL(KIND=R8) :: CENTER(D)
-REAL(KIND=R8) :: LQ(D,D)
-REAL(KIND=R8) :: PLANE(D+1)
-REAL(KIND=R8) :: WORK(5*D)
+INTEGER :: IPIV(D) ! Pivot indices.
+INTEGER :: SIMP(D+1) ! Current simplex.
+REAL(KIND=R8) :: AT(D,D) ! The transpose of A, the linear coefficient matrix.
+REAL(KIND=R8) :: B(D) ! The RHS of a linear system.
+REAL(KIND=R8) :: CENTER(D) ! The circumcenter of a simplex.
+REAL(KIND=R8) :: LQ(D,D) ! Hold LU or QR of AT.
+REAL(KIND=R8) :: PLANE(D+1) ! The hyperplane containing a facet.
+REAL(KIND=R8) :: TAU(D) ! Householder reflector constants.
+REAL(KIND=R8) :: WORK(5*D) ! Work array for DGEQP3 and DORMQR.
 
 ! Dynamic arrays of unknown size from AFL and Vector modules.
 TYPE(INTVECTOR) :: SL
 TYPE(FACELIST) :: FL
 
 ! External functions and subroutines.
-REAL(KIND=R8), EXTERNAL :: DDOT ! BLAS inner product.
-REAL(KIND=R8), EXTERNAL :: DNRM2 ! BLAS Euclidean norm.
-EXTERNAL :: DTRSM ! BLAS triangular solve.
-EXTERNAL :: DGELS ! LAPACK linear solve.
-EXTERNAL :: DGEQP3 ! LAPACK QR factorization.
-EXTERNAL :: DGESV ! LAPACK solve least squares via QR.
-EXTERNAL :: DGESVD ! LAPACK singular value decomposition.
+REAL(KIND=R8), EXTERNAL :: DDOT ! Inner product (BLAS).
+REAL(KIND=R8), EXTERNAL :: DNRM2 ! Euclidean norm (BLAS).
+EXTERNAL :: DGEQP3 ! Perform a QR factorization with column pivoting (LAPACK).
+EXTERNAL :: DGETRF ! Perform a LU factorization with partial pivoting (LAPACK).
+EXTERNAL :: DGETRS ! Use the output of DGETRF to solve a linear system (LAPACK).
+EXTERNAL :: DORMQR ! Apply householder reflectors to a matrix (LAPACK).
+EXTERNAL :: DTRSM ! Perform a triangular solve (BLAS).
 
 ! Check for input size errors.
 IF ( D < 1 .OR. N < 1 .OR. SIZE(PTS,1) .NE. D &
@@ -165,30 +166,33 @@ IF ( D < 1 .OR. N < 1 .OR. SIZE(PTS,1) .NE. D &
 ELSE IF (N < D+1) THEN
    IERR = 11
    RETURN
+ELSE IF (V > N .OR. V < 1) THEN
+   IERR = 13
+   RETURN
 END IF
 ! Compute the machine precision.
-EPS = SQRT(EPSILON(1.0_R8))
-IF (PRESENT(EPS_OPT)) THEN
-   IF(EPS < EPS_OPT .AND. EPS_OPT < 0.05_R8) THEN
-      EPS = EPS_OPT
+EPSL = SQRT(EPSILON(1.0_R8))
+IF (PRESENT(EPS)) THEN
+   IF(EPSL < EPS) THEN
+      EPSL = EPS
    END IF
 END IF
 ! Rescale the points to the unit hypersphere.
 CALL RESCALE(MINRAD)
 ! Check for degeneracies in point spacing.
-IF (MINRAD < EPS) THEN
+IF (MINRAD < EPSL) THEN
    IERR = 12
    RETURN
 END IF
 ! Check other optional inputs.
-IF (PRESENT(IBUDGET_OPT)) THEN
-   IBUDGET = IBUDGET_OPT
-   IF (IBUDGET < 1) THEN
+IF (PRESENT(IBUDGET)) THEN
+   IBUDGETL = IBUDGET
+   IF (IBUDGETL < 1) THEN
       IERR = 10
       RETURN
    END IF
 ELSE
-   IBUDGET = 50000
+   IBUDGETL = 50000
 END IF
 
 ! Initialize the simplex and face lists.
@@ -220,7 +224,7 @@ IF(IERR .NE. 0) THEN
 END IF
 
 ! Loop for filling all simplices containing the vertex with index V.
-INNER : DO K = 1, IBUDGET
+INNER : DO K = 1, IBUDGETL
 !! Debugging statements. Uncomment for step-by-step print out of progress.
 !PRINT *, 'Iteration: ', k
 !PRINT *, 'Simplices:'
@@ -239,9 +243,9 @@ INNER : DO K = 1, IBUDGET
    END IF
    IF (SIMP(1) .EQ. 0) EXIT INNER ! Exit condition.
    ! Reconstruct the linear system for the new face.
-   DO I=1,D-1
-      A(I,:) = PTS(:,SIMP(I+1)) - PTS(:,SIMP(1))
-      B(I) = DDOT(D, A(I,:), 1, A(I,:), 1) / 2.0_R8
+   DO I = 1, D-1
+      AT(:,I) = PTS(:,SIMP(I+1)) - PTS(:,SIMP(1))
+      B(I) = DDOT(D, AT(:,I), 1, AT(:,I), 1) / 2.0_R8
    END DO
    ! Compute the next simplex.
    CALL MAKESIMPLEX()
@@ -265,7 +269,7 @@ INNER : DO K = 1, IBUDGET
 END DO INNER
 
 ! Check for budget violation.
-IF (K > IBUDGET) THEN 
+IF (K > IBUDGETL) THEN 
    IERR = 20
 END IF
 
@@ -282,116 +286,83 @@ RETURN
 CONTAINS ! Internal subroutines and functions.
 
 SUBROUTINE MAKEFIRSTSIMP()
-! Iteratively construct an initial simplex starting with the PTS(:,V) by
-! choosing points that minimize the radius of the smallest circumball.
-! Let (P_1, P_2, ..., P_K) denote the list of vertices for the simplex
-! after K iterations. Let P* denote the candidate vertex to be added
-! to SIMP in iteration K+1. Let CENTER denote the circumcenter of the
-! resulting simplex.  Then
+! Iteratively construct the first simplex by choosing points that
+! minimize the radius of the smallest circumball. Let P_1, P_2, ..., P_K
+! denote the current set of vertices for the simplex. Let P* denote the
+! candidate vertex to be added to the simplex. Let CENTER denote the
+! circumcenter of the simplex.  Then
 !
 ! X = CENTER - P_1
 !
 ! is given by the minimum norm solution to the underdetermined linear system 
 !
-! AX = B, where
+! A X = B, where
 !
-! A = [ P_2 - P_1, P_3 - P_1, ..., P_K - P_1, P* - P_1 ]^T and
+! A^T = [ P_2 - P_1, P_3 - P_1, ..., P_K - P_1, P* - P_1 ] and
 ! B = [ <A_{1.},A_{1.}>/2, <A_{2.},A_{2.}>/2, ..., <A_{K.},A_{K.}>/2 ]^T.
 !
 ! Then the radius of the smallest circumsphere is CURRRAD = \| X \|,
 ! and the next vertex is given by P_{K+1} = argmin_{P*} CURRRAD, where P*
 ! ranges over points in PTS that are not already a vertex of the simplex.
 !
-! On output, this subroutine fully populates the matrix A and vector B, and
-! fills SIMP(:) with the indices of a valid Delaunay simplex containing V as
-! a vertex. This subroutine returns an error if a degenerate case is
-! detected.
+! On output, this subroutine fully populates the matrix A^T and vector B,
+! and fills SIMP(:) with the indices of a valid Delaunay simplex.
 
-! Dummy variables U and VT for storing U and V^T when computing SVD.
-! Values are never initialized or used.
-REAL(KIND=R8), ALLOCATABLE :: U(:), VT(:)
 ! Add the first point.
 SIMP(:) = 0
-IF (V > 0 .AND. V .LE. N) THEN
-   SIMP(1) = V
-ELSE
-   IERR = 13
-   RETURN
-END IF
-! The second point is the closest point to the first.
-MINRAD = HUGE(MINRAD)
+SIMP(1) = V
+! Find the second point, i.e., the closest point to PTS(:,SIMP(1)).
+MINRAD = HUGE(0.0_R8)
 DO I = 1, N
-   ! Avoid repeats.
-   IF (I == SIMP(1)) CYCLE
-   ! Check for a new minimum.
+   ! Skip repeated vertices.
+   IF (I .EQ. SIMP(1)) CYCLE
+   ! Check the diameter of the resulting circumsphere.
    CURRRAD = DNRM2(D, PTS(:,I)-PTS(:,SIMP(1)), 1)
-   IF (CURRRAD < MINRAD) THEN
-      MINRAD = CURRRAD
-      SIMP(2) = I
-   END IF
+   IF (CURRRAD < MINRAD) THEN; MINRAD = CURRRAD; SIMP(2) = I; END IF
 END DO
-! Set up the first row of the least squares system.
-A(1,:) = PTS(:,SIMP(2)) - PTS(:,SIMP(1))
-B(1) = DDOT(D, A(1,:), 1, A(1,:), 1) / 2.0_R8
-! Loop over the remaining D-1 vertices in the first simplex.
+! Set up the first row of the system A X = B.
+AT(:,1) = PTS(:,SIMP(2)) - PTS(:,SIMP(1))
+B(1) = DDOT(D, AT(:,1), 1, AT(:,1), 1) / 2.0_R8
+! Loop to collect the remaining D-1 vertices for the first simplex.
 DO I = 2, D
-   ! Re-initialize the radius for each iteration.
-   MINRAD = HUGE(MINRAD)
-   ! Find the next point to add.
+   MINRAD = HUGE(0.0_R8) ! Re-initialize the radius for each iteration.
+   ! Check each point P* in PTS.
    DO J = 1, N
-      ! Check that the point is not already in the face.
-      IF (ANY(SIMP(:) == J)) CYCLE
-      ! Add the current point to the least squares system.
-      A(I,:) = PTS(:,J) - PTS(:,SIMP(1))
-      B(I) = DDOT(D, A(I,:), 1, A(I,:), 1) / 2.0_R8
-      ! Solve least squares problem using QR/LQ factorization.
-      LQ(1:I,:) = A(1:I,:)
-      CENTER(1:I) = B(1:I)
-      CALL DGELS('N', I, D, 1, LQ, D, CENTER, D, WORK, LWORK, IERR)
-      IF (IERR < 0) THEN ! Check for errors.
-         IERR = 90
-         RETURN
-      ELSE IF (IERR > 0) THEN ! Indicates rank deficiency.
-         CYCLE
+      ! Check that this point is not already in the simplex.
+      IF (ANY(SIMP(:) .EQ. J)) CYCLE
+      ! Add P* to linear system, and compute the minimum norm solution.
+      AT(:,I) = PTS(:,J) - PTS(:,SIMP(1))
+      B(I) = DDOT(D, AT(:,I), 1, AT(:,I), 1) / 2.0_R8
+      LQ(:,1:I) = AT(:,1:I)
+      ! Compute A^T P = Q R.
+      CALL DGEQP3(D, I, LQ, D, IPIV, TAU, WORK, LWORK, IERR)
+      IF(IERR < 0) THEN ! LAPACK illegal input error.
+         IERR = 80; RETURN
+      ELSE IF (ABS(LQ(I,I)) < EPSL) THEN ! A is rank-deficient.
+         CYCLE ! If rank-deficient, skip this point.
       END IF
-      ! Calculate the radius of the circumball.
+      ! Set CENTER = P^T B.
+      FORALL (ITMP = 1:I) CENTER(ITMP) = B(IPIV(ITMP))
+      ! Get the radius using R^T Q^T X = P^T B.
+      CALL DTRSM('L', 'U', 'T', 'N', I, 1, 1.0_R8, LQ, D, CENTER, D)
+      CENTER(I+1:D) = 0.0_R8
+      CALL DORMQR('L', 'N', D, 1, I, LQ, D, TAU, CENTER, D, WORK, LWORK, &
+         IERR)
+      IF(IERR < 0) THEN ! LAPACK illegal input error.
+         IERR = 83; RETURN
+      END IF
+      ! Calculate the radius and compare it to the current minimum.
       CURRRAD = DNRM2(D, CENTER, 1)
-      ! Check for a new minimum radius.
-      IF (CURRRAD < MINRAD) THEN
-         MINRAD = CURRRAD
-         SIMP(I+1) = J
-      END IF
+      IF (CURRRAD < MINRAD) THEN; MINRAD = CURRRAD; SIMP(I+1) = J; END IF
    END DO
-   ! Check that a point was found.
-   IF (SIMP(I+1) .EQ. 0) THEN
-      EXIT
-   END IF
-   ! Add the next point to the least squares system.
-   A(I,:) = PTS(:,SIMP(I+1)) - PTS(:,SIMP(1))
-   B(I) = DDOT(D, A(I,:), 1, A(I,:), 1) / 2.0_R8 
+   ! Check that a point was found. If not, then all the points must lie in a
+   ! lower dimensional linear manifold (error case).
+   IF (SIMP(I+1) .EQ. 0) THEN; IERR = 31; RETURN; END IF
+   ! If all operations were successful, add the best P* to the linear system.
+   AT(:,I) = PTS(:,SIMP(I+1)) - PTS(:,SIMP(1))
+   B(I) = DDOT(D, AT(:,I), 1, AT(:,I), 1) / 2.0_R8 
 END DO
-! If no rank deficiency was detected, double-check.
-IF (I > D) THEN
-   ! Compute the singular value decomposition of A.
-   LQ = A
-   CALL DGESVD('N','N',D,D,LQ,D,PLANE(1:D),U,1,VT,1,WORK,LWORK,IERR)
-   IF (IERR < 0) THEN ! Check for errors.
-      IERR = 90
-      RETURN
-   ELSE IF (IERR > 0) THEN ! Failure to converge.
-      IERR = 91
-      RETURN
-   END IF
-   ! Check for rank deficiency up to working precision.
-   IF (PLANE(D)/PLANE(1) < EPS) THEN
-      IERR = 21
-      RETURN
-   END IF
-ELSE ! Otherwise, rank deficiency has already been detected.
-   IERR = 21
-   RETURN
-END IF
-IERR = 0
+IERR = 0 ! Set error flag to 'success' for a normal return.
 RETURN
 END SUBROUTINE MAKEFIRSTSIMP
 
@@ -399,20 +370,19 @@ SUBROUTINE MAKESIMPLEX()
 ! Given a Delaunay facet F and a specified side of its containing hyperplane,
 ! complete the simplex by adding a point from PTS on the opposite `side' of
 ! F. Assume SIMP(1:D) contains the vertex indices of F (corresponding to
-! data points P_1, P_2, ..., P_D in PTS) and SIMP(D+1) contains a point on
-! the current side (to flip away from), and assume that the matrix A(1:D-1,:)
+! data points P_1, P_2, ..., P_D in PTS), and assume the matrix A(1:D-1,:)^T
 ! and vector B(1:D-1) are filled appropriately (similarly as in
-! MAKEFIRSTSIMP()). Then for any P* (not in the hyperplane containing F)
-! in PTS, let CENTER denote the circumcenter of the simplex with vertices
+! MAKEFIRSTSIMP()). Then for any P* (not in the hyperplane containing
+! F) in PTS, let CENTER denote the circumcenter of the simplex with vertices
 ! P_1, P_2, ..., P_D, P*. Then
 !
 ! X = CENTER - P_1
 !
 ! is given by the solution to the nonsingular linear system
 !
-! AX = B where
+! A X = B where
 !
-! A = [ P_2 - P_1, P_3 - P_1, ..., P_D - P_1, P* - P_1 ]^T and
+! A^T = [ P_2 - P_1, P_3 - P_1, ..., P_D - P_1, P* - P_1 ] and
 ! B = [ <A_{1.},A_{1.}>/2, <A_{2.},A_{2.}>/2, ..., <A_{D.},A_{D.}>/2 ]^T.
 !
 ! Then CENTER = X + P_1 and RADIUS = \| X \|.  P_{D+1} will be given by the 
@@ -428,119 +398,104 @@ SUBROUTINE MAKESIMPLEX()
 ! Delaunay simplex, given that F is indeed a Delaunay facet.
 !
 ! On input, SIMP(1:D) should contain the vertex indices (column indices
-! from PTS) of the facet F and SIMP(D+1) must contain the index of a point
-! on the current side of F (to flip away from).  Upon output, SIMP(:) will
+! from PTS) of the facet F and SIMP(D+1) must contain the index of a piont
+! on the current side of F (to flip away from). Upon output, SIMP(:) will
 ! contain the vertex indices of a Delaunay simplex on the opposite side of
-! PLANE.  Also, the matrix A and vector B will be updated accordingly. If
+! PLANE.  Also, the matrix A^T and vector B will be updated accordingly. If
 ! SIMP(D+1)=0, then there were no points in PTS on the appropriate side of
-! F, meaning that F is a facet of the convex hull.
+! F, meaning that F is a facet of the convex hull of PTS.
 
-! Calculate the hyperplane boundary of the halfspace and store in PLANE.
+! Compute the hyperplane PLANE.
 CALL MAKEPLANE()
-IF(IERR .NE. 0) RETURN
-! Calculate the side of the viable point.
-SIDE1 = -1.0_R8 * DDOT(D,PLANE(1:D),1,PTS(:,SIMP(D+1)),1) + PLANE(D+1)
-! Normalize the magnitude of SIDE1.
+IF(IERR .NE. 0) RETURN ! Check for errors.
+! Compute the sign for the side of the viable points.
+SIDE1 =  -1.0_R8 * DDOT(D,PLANE(1:D),1,PTS(:,SIMP(D+1)),1) + PLANE(D+1)
 SIDE1 = SIGN(1.0_R8,SIDE1)
 ! Initialize the center, radius, and simplex.
 SIMP(D+1) = 0
-CENTER = 0_R8
-MINRAD = HUGE(MINRAD)
-! Loop through all the points in PTS.
+CENTER(:) = 0.0_R8
+MINRAD = HUGE(0.0_R8)
+! Loop through all points P* in PTS.
 DO I = 1, N
-   ! Check whether PTS(:,I) is on the viable side of halfspace.
+   ! Check that P* is inside the current ball.
+   IF (DNRM2(D, PTS(:,I) - CENTER(:), 1) > MINRAD) CYCLE ! If not, skip.
+   ! Check that P* is on the appropriate halfspace.
    SIDE2 = DDOT(D,PLANE(1:D),1,PTS(:,I),1) - PLANE(D+1)
-   IF (SIDE1 * SIDE2 < EPS .OR. ANY(SIMP(:) .EQ. I)) CYCLE
-   ! Check for evidence of degeneracy.
-   IF (ABS(DNRM2(D, PTS(:,I) - CENTER(:), 1) - MINRAD) < EPS) THEN
-      IERR = 21
-      RETURN
-   END IF
-   ! Check whether PTS(:,I) is inside the current ball.
-   IF (DNRM2(D, PTS(:,I) - CENTER(:), 1) > MINRAD) CYCLE
-   ! Add the point with index I to the linear system.
-   A(D,:) = PTS(:,I) - PTS(:,SIMP(1))
-   B(D) = DDOT(D, A(D,:), 1, A(D,:), 1) / 2.0_R8
-   LQ = A
+   IF (SIDE1*SIDE2 < EPSL .OR. ANY(SIMP(:) .EQ. I)) CYCLE ! If not, skip.
+   ! Add P* to the linear system, and solve to get shifted CENTER.
+   AT(:,D) = PTS(:,I) - PTS(:,SIMP(1))
+   B(D) = DDOT(D, AT(:,D), 1, AT(:,D), 1) / 2.0_R8
+   LQ = AT
    CENTER = B
-   ! Solve the linear system to get the center.
-   CALL DGESV(D, 1, LQ, D, PIV, CENTER, D, IERR)
-   IF (IERR < 0) THEN
-      IERR = 90
-      RETURN
-   ELSE IF (IERR > 0) THEN
-      IERR = 21
-      RETURN
+   ! Compute A^T = LU
+   CALL DGETRF(D, D, LQ, D, IPIV, IERR)
+   IF (IERR < 0) THEN ! LAPACK illegal input.
+      IERR = 81; RETURN
+   ELSE IF (IERR > 0) THEN ! Rank-deficiency detected.
+      IERR = 61; RETURN
    END IF
-   ! Update the radius, center, and simplex.
-   CURRRAD = DNRM2(D, CENTER, 1)
-   MINRAD = CURRRAD
-   CENTER = CENTER + PTS(:,SIMP(1))
+   ! Use A^T = LU to solve A X = B, where X = CENTER - P_1.
+   CALL DGETRS('T', D, 1, LQ, D, IPIV, CENTER, D, IERR)
+   IF (IERR < 0) THEN ! LAPACK illegal input.
+      IERR = 82; RETURN
+   END IF
+   ! Update the new radius, center, and simplex.
+   MINRAD = DNRM2(D, CENTER, 1)
+   CENTER(:) = CENTER(:) + PTS(:,SIMP(1))
    SIMP(D+1) = I
 END DO
-! Reset the error flag.
-IERR = 0
-! Check for the extrapolation condition.
+IERR = 0 ! Reset the error flag to 'success' code.
+! Check for extrapolation condition.
 IF(SIMP(D+1) .EQ. 0) RETURN
-! If there was no extrapolation, add the new point to the linear system.
-A(D,:) = PTS(:,SIMP(D+1)) - PTS(:,SIMP(1))
-B(D) = DDOT(D, A(D,:), 1, A(D,:), 1) / 2.0_R8
+! Add new point to the linear system.
+AT(:,D) = PTS(:,SIMP(D+1)) - PTS(:,SIMP(1))
+B(D) = DDOT(D, AT(:,D), 1, AT(:,D), 1) / 2.0_R8
 RETURN
 END SUBROUTINE MAKESIMPLEX
 
 SUBROUTINE MAKEPLANE()
-! Construct a plane c^T x = \alpha containing the first D vertices indexed
+! Construct a hyperplane c^T x = \alpha containing the first D vertices indexed
 ! in SIMP(:). The plane is determined by its normal vector c and \alpha.
-! Let (P_1, P_2, ..., P_D) be the vertices indexed in SIMP(1:D). A normal
-! vector is any nonzero vector in ker(A), where the matrix
-! 
-! A = [ P_2 - P_1, P_3 - P_1, ..., P_D - P_1 ]^T.
-! 
-! Since rank A = D-1, dim ker(A) = 1, and ker(A) can be found from a QR
-! factorization of A:  AP = QR, where P permutes the columns of A. Solving
-! AP X = QR X = 0 with X_D =  1 gives a normal vector PX.
-! 
+! Let P_1, P_2, ..., P_D be the vertices indexed in SIMP(1:D). A normal
+! vector is any nonzero vector in ker A, where the matrix
+!
+! A^T = [ P_2 - P_1, P_3 - P_1, ..., P_D - P_1 ].
+!
+! Since rank A = D-1, dim ker A = 1, and ker A can be found from a QR
+! factorization of A^T:  A^T P = QR, where P permutes the columns of A^T.
+! Then the last column of Q is orthogonal to the range of A^T, and in ker A.
+!
 ! Upon output, PLANE(1:D) contains the normal vector c and PLANE(D+1)
 ! contains \alpha defining the plane.
 
-! CHECK THAT D-1 > 0.
-IF (D > 1) THEN
+IF (D > 1) THEN ! Check that D-1 > 0, otherwise the plane is trivial.
    ! Compute the QR factorization.
-   PIV=0
-   LQ = A
-   CALL DGEQP3(D-1,D,LQ,D,PIV,PLANE,WORK,LWORK,IERR)
-   IF(IERR < 0) THEN
-      IERR = 90
-      RETURN
-   ELSE IF (IERR > 0) THEN
-      IERR = 21
-      RETURN
+   IPIV=0
+   LQ = AT
+   CALL DGEQP3(D, D-1, LQ, D, IPIV, TAU, WORK, LWORK, IERR)
+   IF(IERR < 0) THEN ! LAPACK illegal input error.
+      IERR = 80; RETURN
    END IF
-   ! Perform a triangular solve, fixing the final value to get
-   ! a nontrivial solution.
-   WORK(1:D-1) = LQ(1:D-1,D)
-   CALL DTRSM('L','U','N','N',D-1,1,-1.0_R8,LQ,D,WORK,D)
-   WORK(D) = 1.0_R8
-   ! Undo the pivots.
-   DO I = 1,D
-      PLANE(PIV(I)) = WORK(I)
-   END DO
-   ! Normalize the orthogonal vector.
-   PLANE(1:D) = PLANE(1:D) / DNRM2(D,PLANE(1:D),1)
-   ! Calculate the intercept.
+   ! The nullspace is given by the last column of Q.
+   PLANE(1:D-1) = 0.0_R8
+   PLANE(D) = 1.0_R8
+   CALL DORMQR('L', 'N', D, 1, D-1, LQ, D, TAU, PLANE, D, WORK, &
+    LWORK, IERR)
+   IF(IERR < 0) THEN ! LAPACK illegal input error.
+      IERR = 83; RETURN
+   END IF
+   ! Calculate the constant \alpha defining the plane.
    PLANE(D+1) = DDOT(D,PLANE(1:D),1,PTS(:,SIMP(1)),1)
-ELSE
-   ! Compute the hyper plane when D=1.
+ELSE ! Special case where D=1.
    PLANE(1) = 1.0_R8
    PLANE(2) = PTS(1,SIMP(1))
 END IF
 RETURN
 END SUBROUTINE MAKEPLANE
 
-SUBROUTINE SelectSortSimp()
-! Sort simplex indices, but keep the top item at the bottom.
-! O(D^2) complexity.
-DO I=1, D+1
+SUBROUTINE SELECTSORTSIMP()
+! Sort the indices in SIMP(:), but keep SIMP(1) fixed. O(D^2) complexity.
+DO I = 2, D+1
    J = MINLOC(SIMP(I:D+1),DIM=1) + I - 1
    ITMP = SIMP(J)
    SIMP(J) = SIMP(I)
@@ -550,9 +505,9 @@ RETURN
 END SUBROUTINE SELECTSORTSIMP
 
 SUBROUTINE BUBBLESORTSIMP()
-! Sort simplex indices given that only the last index is out of place and
-! the first index is fixed. O(D) complexity.
-DO I=D+1, 1, -1
+! Sort the indices in SIMP(:), given that only SIMP(D+1) is out of place and
+! SIMP(1) is fixed. O(D) complexity.
+DO I = D+1, 3, -1
    IF (SIMP(I) < SIMP(I-1)) THEN
       ITMP = SIMP(I)
       SIMP(I) = SIMP(I-1)

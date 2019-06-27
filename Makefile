@@ -17,4 +17,4 @@ delaunayfan.o: delaunayfan.f90 afl.o
 	$(FORT) $(CFLAGS) delaunayfan.f90 -o delaunayfan.o
 
 clean:
-	rm *.o *.mod vtdel
+	rm *.o *.mod delfan

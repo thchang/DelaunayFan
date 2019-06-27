@@ -18,25 +18,27 @@ robust for degenerate or near-degenerate inputs.
 
 ## Getting Started
 
-### Prerequisites
+### Dependencies
 
-Before installing the DelaunayFan subroutine, you will need BLAS and LAPACK,
-which are available on NIST - Guide to Available Math Software (GAMS) and
-Netlib.
-Alternatively, use any package manager to install
+DelaunayFan depends on several procedures from BLAS and LAPACK.
+For optimal performance, link a system installation using
 ```
-libblas
+-lblas
 ```
 and
 ```
-liblapack
+-llapack
 ```
+Alternatively, minimal copies of BLAS and LAPACK are provided in the files
+blas.f and lapack.f.
 
 ### Contents
 
  - delaunayfan.f90 contains the main subroutine DelaunayFan.
  - AFL.f90 contains the source code for the data structure described in Chang et. al.
  - Vector.f90 contains the source code for a dynamic multidimensional array, similar to the C++ vector objects.
+ - blas.f contains a minimal copy of BLAS, containing only the procedures required by delaunayfan.f90
+ - lapack.f contains a minimal copy of LAPACK, containing only the procedures required by delaunayfan.f90
  - main.f90 contains driver code generating a command line program for DelaunayFan
  - Makefile for building the code.
  - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in 2-dimensions containing 20 vertices/input points.

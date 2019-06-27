@@ -6,7 +6,7 @@ PROGRAM TEST
 ! Author: Tyler Chang                                   
 ! Last Update: August, 2017                               
 !
-! Usage :$ ./vtdel D N V FILENAME
+! Usage :$ ./delfan D N V FILENAME
 !
 ! D is an integer specifying the dimension of problem.
 ! N is an integer specifying the number of lines (vertices) in the file.
@@ -46,7 +46,7 @@ CLOSE(1)
 
 ! Get the results and record the computation time.
 CALL CPU_TIME(START)
-CALL DELAUNAYFAN(D, N, PTS, V, FAN, ERROR, IBUDGET_OPT=10000)
+CALL DELAUNAYFAN(D, N, PTS, V, FAN, ERROR, IBUDGET=10000)
 CALL CPU_TIME(FINISH)
 FINISH = FINISH - START
 ! Print the timing results.

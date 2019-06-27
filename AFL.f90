@@ -72,7 +72,7 @@ SUBROUTINE PUSHALL(FL, SIMP, IERR)
    TYPE(FACELIST) :: FL
    INTEGER :: SIMP(FL%D+1), IERR, I, TMP
 
-   DO I = FL%D+1, 1, -1
+   DO I = FL%D+1, 2, -1
       ! Move the unused vertex to index D+1.
       TMP = SIMP(FL%D+1)
       SIMP(FL%D+1) = SIMP(I)
