@@ -96,6 +96,9 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 !      manifold (up to the working precision), and no valid triangulation
 !      exists.
 !
+! 40 : D+2 or more points are cospherical up to the precision EPSL. If
+!      not perturbed, this could cause an error.
+!
 ! 50 : A memory allocation error occurred while allocating the work array
 !      WORK.
 ! 51 : A memory related error occurred while managing the active face
@@ -352,7 +355,10 @@ DO I = 2, D
       IF(IERR < 0) THEN ! LAPACK illegal input error.
          IERR = 80; RETURN
       ELSE IF (ABS(LQ(I,I)) < EPSL) THEN ! A is rank-deficient.
-         CYCLE ! If rank-deficient, skip this point.
+         ! Old code below: If rank-deficient, skip this point.
+         ! CYCLE
+         ! Instead, raise an error, as this could result in an infinite loop.
+         IERR = 40; RETURN
       END IF
       ! Set CENTER = P^T B.
       FORALL (ITMP = 1:I) CENTER(ITMP) = B(IPIV(ITMP))
@@ -430,8 +436,13 @@ CENTER(:) = 0.0_R8
 MINRAD = HUGE(0.0_R8)
 ! Loop through all points P* in PTS.
 DO I = 1, N
-   ! Check that P* is inside the current ball.
-   IF (DNRM2(D, PTS(:,I) - CENTER(:), 1) > MINRAD) CYCLE ! If not, skip.
+   ! Skip all points in SIMP
+   IF (ANY(SIMP(1:D) .EQ. I)) CYCLE
+   ! Check whether P* is cospherical with the current minima.
+   CURRRAD = DNRM2(D, PTS(:,I) - CENTER(:), 1)
+   IF (ABS(CURRRAD - MINRAD) < EPSL) THEN; IERR = 40; RETURN; END IF
+   ! Otherwise, check if P* is inside the current ball.
+   IF (CURRRAD > MINRAD) CYCLE ! If not, skip.
    ! Check that P* is on the appropriate halfspace.
    SIDE2 = DDOT(D,PLANE(1:D),1,PTS(:,I),1) - PLANE(D+1)
    IF (SIDE1*SIDE2 < EPSL .OR. ANY(SIMP(:) .EQ. I)) CYCLE ! If not, skip.
