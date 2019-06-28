@@ -3,14 +3,32 @@ INTEGER, PARAMETER :: R8 = SELECTED_REAL_KIND(13)
 END MODULE REAL_PRECISION
 
 MODULE DELAUNAYFAN_MOD
-! This module contains the subroutine VTDELAUNAYFAN for computing the
-! umbrella neighbourhood of a vertex V in R^D from the Delaunay
-! triangulation of data points PTS.
+! This module contains the REAL_PRECISION R8 data type for 64-bit arithmetic
+! and interface blocks for the DELAUNAYFAN subroutine for computing the 
+! umbrella neighbourhood of a vertex V in the Delaunay triangulation of D
+! dimensions.
 USE REAL_PRECISION
-
 PUBLIC
 
-CONTAINS
+INTERFACE
+
+   SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
+   USE REAL_PRECISION
+   ! Input arguments.
+   INTEGER, INTENT(IN) :: D, N
+   REAL(KIND=R8), INTENT(INOUT) :: PTS(:,:)
+   INTEGER, INTENT(IN) :: V
+   ! Output arguments.
+   INTEGER, ALLOCATABLE, INTENT(OUT) :: FAN(:,:)
+   INTEGER, INTENT(OUT) :: IERR
+   ! Optional arguments.
+   REAL(KIND=R8), INTENT(IN), OPTIONAL:: EPS
+   INTEGER, INTENT(IN), OPTIONAL :: IBUDGET
+   END SUBROUTINE DELAUNAYFAN
+
+END INTERFACE
+
+END MODULE DELAUNAYFAN_MOD
 
 SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 ! This is a serial implementation of an algorithm for computing the umbrella
@@ -55,32 +73,47 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 !
 ! 00 : Succesfully computed the entire umbrella neighbourhood.
 !
-! 10 : The input data sizes don't match or contained illegal values.
+! 10 : The dimension D must be positive.
 ! 11 : Too few data points to construct a triangulation (i.e., N < D+1).
-! 12 : Two or more points in the data set PTS are too close together with
+! 12 : The first dimension of PTS does not agree with the dimension D.
+! 13 : The second dimension of PTS does not agree with the number of data
+!      points N.
+! 14 : The supplied value V is not a valid index in PTS (i.e., V does not
+!      satisfy 0 < V < N+1).
+! 15 : The budget supplied in IBUDGET does not contain a positive
+!      integer.
+!
+! 20 : The budget was exceeded before the algorithm could close every open
+!      facet. If the dimension is high, try increasing IBUDGET. This error
+!      can also be caused by degeneracies in the point spacing, which cause
+!      the Delaunay triangulation to be non-unique. Consider perturbing
+!      PTS by some large amount and recomputing.
+!
+! 30 : Two or more points in the data set PTS are too close together with
 !      respect to the working precision (EPS), which would result in a
 !      numerically degenerate simplex.
-! 13 : The input V does not contain a valid index in PTS.
-!
-! 20 : A budget violation has occurred. All computed simplices were still
-!      returned, but the complete neighbourhood was not computed. Note,
-!      it is possible that this error was caused by a degeneracy that
-!      went undetected, resulting in an infinite loop.
-! 21 : The supplied data was in some way degenerate or nearly degenerate,
-!      causing the algorithm to fail.
-!
 ! 31 : All the data points in PTS lie in some lower dimensional linear
 !      manifold (up to the working precision), and no valid triangulation
 !      exists.
 !
-! 50 : An error occurred while managing the dynamic arrays containing the
-!      FaceList and SimplexLists.
-! 51 : A memory allocation error occurred while allocating the output
+! 50 : A memory allocation error occurred while allocating the work array
+!      WORK.
+! 51 : A memory related error occurred while managing the active face
+!      list (AFL).
+! 52 : A memory related error occurred while managing the list of
+!      in the umbrella neighborhood.
+! 53 : A memory allocation error occurred while allocating the output
 !      array FAN.
 !
-! 90 : A LAPACK subroutine has reported an illegal value.
-! 91 : The LAPACK subroutine DGESVD failed to converge while performing a
-!      singular value decomposition.
+! 60 : A value that was judged appropriate later caused LAPACK to encounter a
+!      singularity. Try increasing the value of EPS.
+!
+!      The errors 80--83 should never occur, and likely indicate a compiler 
+!      bug or hardware failure.
+! 80 : The LAPACK subroutine DGEQP3 has reported an illegal value.
+! 81 : The LAPACK subroutine DGETRF has reported an illegal value.
+! 82 : The LAPACK subroutine DGETRS has reported an illegal value.
+! 83 : The LAPACK subroutine DORMQR has reported an illegal value.
 !
 !
 ! Optional arguments:
@@ -104,12 +137,12 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 ! Subroutines and functions directly referenced from BLAS are
 !      DDOT, DNRM2, DTRSM,
 ! and from LAPACK are
-!      DGELS, DGEQP3, DGESV, DGESVD.
+!      DGEQP3, DGETRF, DGETRS, DORMQR.
 ! 
 ! Primary Author: Tyler H. Chang
 ! Last Update: June, 2019
-
 USE AFL
+USE REAL_PRECISION
 IMPLICIT NONE
 
 ! Input arguments.
@@ -143,7 +176,7 @@ REAL(KIND=R8) :: CENTER(D) ! The circumcenter of a simplex.
 REAL(KIND=R8) :: LQ(D,D) ! Hold LU or QR of AT.
 REAL(KIND=R8) :: PLANE(D+1) ! The hyperplane containing a facet.
 REAL(KIND=R8) :: TAU(D) ! Householder reflector constants.
-REAL(KIND=R8) :: WORK(5*D) ! Work array for DGEQP3 and DORMQR.
+REAL(KIND=R8), ALLOCATABLE :: WORK(:) ! Work array for DGEQP3 and DORMQR.
 
 ! Dynamic arrays of unknown size from AFL and Vector modules.
 TYPE(INTVECTOR) :: SL
@@ -159,69 +192,56 @@ EXTERNAL :: DORMQR ! Apply householder reflectors to a matrix (LAPACK).
 EXTERNAL :: DTRSM ! Perform a triangular solve (BLAS).
 
 ! Check for input size errors.
-IF ( D < 1 .OR. N < 1 .OR. SIZE(PTS,1) .NE. D &
- .OR. SIZE(PTS,2) .NE. N) THEN
-   IERR = 10
-   RETURN
-ELSE IF (N < D+1) THEN
-   IERR = 11
-   RETURN
-ELSE IF (V > N .OR. V < 1) THEN
-   IERR = 13
-   RETURN
-END IF
+IF ( D < 1) THEN; IERR = 10; RETURN; END IF
+IF ( N < D+1) THEN; IERR = 11; RETURN; END IF
+IF ( SIZE(PTS,1) .NE. D) THEN; IERR = 12; RETURN; END IF
+IF ( SIZE(PTS,2) .NE. N) THEN; IERR = 13; RETURN; END IF
+IF (V > N .OR. V < 1) THEN; IERR = 14; RETURN; END IF
+
 ! Compute the machine precision.
 EPSL = SQRT(EPSILON(1.0_R8))
+! Check for the optional value EPS, and ensure that EPS is large enough.
 IF (PRESENT(EPS)) THEN
-   IF(EPSL < EPS) THEN
-      EPSL = EPS
-   END IF
+   IF(EPSL < EPS) EPSL = EPS
 END IF
+
+! Set the budget.
+IBUDGETL = 50000
+! Check for the optional input IBUDGET, and ensure that it is valid.
+IF (PRESENT(IBUDGET)) THEN
+   IF (IBUDGET < 1) THEN; IERR = 15; RETURN; END IF
+   IBUDGETL = IBUDGET
+END IF
+
 ! Rescale the points to the unit hypersphere.
 CALL RESCALE(MINRAD)
 ! Check for degeneracies in point spacing.
-IF (MINRAD < EPSL) THEN
-   IERR = 12
-   RETURN
-END IF
-! Check other optional inputs.
-IF (PRESENT(IBUDGET)) THEN
-   IBUDGETL = IBUDGET
-   IF (IBUDGETL < 1) THEN
-      IERR = 10
-      RETURN
-   END IF
-ELSE
-   IBUDGETL = 50000
-END IF
+IF (MINRAD < EPSL) THEN; IERR = 30; RETURN; END IF
 
-! Initialize the simplex and face lists.
-SL = INTVECTOR(DIM=D+1, ISTAT=I)
-IF (I .NE. 0) THEN
-   IERR = 50
-   RETURN
-END IF
-FL = NEWFACELIST(DIM=D+1, IND=V, ISTAT=I)
-IF (I .NE. 0) THEN
-   IERR = 50
-   RETURN
-END IF
-! Initialize LWORK
-LWORK = 5*D
+! Query DGEQP3 for optimal work array size (LWORK).
+LWORK = -1
+CALL DGEQP3(D,D,LQ,D,IPIV,TAU,B,LWORK,IERR)
+LWORK = INT(B(1)) ! Compute the optimal work array size.
+ALLOCATE(WORK(LWORK), STAT=IERR) ! Allocate WORK to size LWORK.
+IF (IERR .NE. 0) THEN ! Check for memory allocation errors.
+   IERR = 50; RETURN; END IF
+
+! Initialize the face list (FL) and simplex list (SL).
+FL = FACELIST(DIM=(D+1), IND=V, ISTAT=IERR)
+IF (IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
+SL = INTVECTOR(DIM=(D+1), ISTAT=IERR)
+IF (IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
 
 ! Make the first "seed" simplex.
 CALL MAKEFIRSTSIMP()
 IF(IERR .NE. 0) RETURN
-! Add all the faces to the stack.
+! Add all the facets to the stack.
 CALL SELECTSORTSIMP()
-CALL FL%PUSHALL(SIMP, IERR)
-IF(IERR .NE. 0) RETURN
+CALL FL%PUSHSIMP(SIMP, IERR)
+IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
 ! Save the first simplex.
-SL%PUSH(SIMP, IERR)
-IF(IERR .NE. 0) THEN
-   IERR = 50
-   RETURN
-END IF
+CALL SL%PUSH(SIMP, IERR)
+IF(IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
 
 ! Loop for filling all simplices containing the vertex with index V.
 INNER : DO K = 1, IBUDGETL
@@ -235,12 +255,9 @@ INNER : DO K = 1, IBUDGETL
 !DO I=1, FL%LENGTH()
 !PRINT *, FL%ITEM(I)
 !END DO
-   ! Get the top face off the stack, but don't delete.
+   ! Get the top face off the stack, but don't delete it.
    CALL FL%TOP(SIMP, IERR)
-   IF(IERR .NE. 0) THEN
-      IERR = 50
-      RETURN
-   END IF
+   IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
    IF (SIMP(1) .EQ. 0) EXIT INNER ! Exit condition.
    ! Reconstruct the linear system for the new face.
    DO I = 1, D-1
@@ -253,34 +270,30 @@ INNER : DO K = 1, IBUDGETL
    ! Check for the extrapolation condition.
    IF (SIMP(D+1) .EQ. 0) THEN
       CALL FL%POP(SIMP, IERR)
-      IF (IERR .NE. 0) RETURN
+      IF (IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
       CYCLE INNER
    END IF
-   ! Sort the simplex indices and push all its faces to the stack.
+   ! Sort the current simplex's indices and push all its facets to the stack.
    CALL BUBBLESORTSIMP()
    CALL FL%PUSHSIMP(SIMP, IERR)
-   IF(IERR .NE. 0) RETURN
+   IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
    ! Save the current simplex to the stack.
    CALL SL%PUSH(SIMP, IERR)
-   IF(IERR .NE. 0) THEN
-      IERR = 50
-      RETURN
-   END IF
+   IF(IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
 END DO INNER
 
 ! Check for budget violation.
-IF (K > IBUDGETL) THEN 
-   IERR = 20
-END IF
+IF (K > IBUDGETL) THEN; IERR = 20; END IF
 
 ! Copy the fan into the output array.
 ALLOCATE(FAN(D+1,SL%LENGTH()), STAT=I)
-IF(I .NE. 0) THEN
-   IERR = 51
-   RETURN
-END IF
+IF(I .NE. 0) THEN; IERR = 53; RETURN; END IF
 FAN(:,:) = SL%DATA()
 CALL SL%FREE()
+
+! Free the LAPACK work array.
+DEALLOCATE(WORK)
+
 RETURN
 
 CONTAINS ! Internal subroutines and functions.
@@ -432,7 +445,7 @@ DO I = 1, N
    IF (IERR < 0) THEN ! LAPACK illegal input.
       IERR = 81; RETURN
    ELSE IF (IERR > 0) THEN ! Rank-deficiency detected.
-      IERR = 61; RETURN
+      IERR = 60; RETURN
    END IF
    ! Use A^T = LU to solve A X = B, where X = CENTER - P_1.
    CALL DGETRS('T', D, 1, LQ, D, IPIV, CENTER, D, IERR)
@@ -567,5 +580,3 @@ RETURN
 END SUBROUTINE RESCALE
 
 END SUBROUTINE DELAUNAYFAN
-
-END MODULE DELAUNAYFAN_MOD
