@@ -39,13 +39,13 @@ blas.f and lapack.f.
  - blas.f contains a minimal copy of BLAS, containing only the procedures required by delaunayfan.f90
  - lapack.f contains a minimal copy of LAPACK, containing only the procedures required by delaunayfan.f90
  - main.f90 contains driver code generating a command line program for DelaunayFan
- - Makefile for building the code
+ - Makefile for building the code using the gfortran compiler
  - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in 2-dimensions containing 20 vertices/input points
  - delvor-ieeesec.pdf contains a detailed description of the algorithm
 
 ### Compiling and Testing
 
-Use the included Makefile to compile the main program and all the subroutines:
+Use the included Makefile to compile the main program and all the subroutines (requires gfortran):
 ```
 make -B
 ```
