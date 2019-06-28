@@ -20,7 +20,7 @@ robust for degenerate or near-degenerate inputs.
 
 ### Dependencies
 
-DelaunayFan depends on several procedures from BLAS and LAPACK.
+DELAUNAYFAN depends on several procedures from BLAS and LAPACK.
 For optimal performance, link a system installation using
 ```
 -lblas
@@ -34,15 +34,14 @@ blas.f and lapack.f.
 
 ### Contents
 
- - delaunayfan.f90 contains the main subroutine DelaunayFan.
- - AFL.f90 contains the source code for the data structure described in Chang et. al.
- - Vector.f90 contains the source code for a dynamic multidimensional array, similar to the C++ vector objects.
+ - delaunayfan.f90 contains the main subroutine DELAUNAYFAN
+ - AFL.f90 contains the source code for the face list data structure described in Chang et. al, as well as a subset of the Vector class (see thchang/VectorClass)
  - blas.f contains a minimal copy of BLAS, containing only the procedures required by delaunayfan.f90
  - lapack.f contains a minimal copy of LAPACK, containing only the procedures required by delaunayfan.f90
  - main.f90 contains driver code generating a command line program for DelaunayFan
- - Makefile for building the code.
- - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in 2-dimensions containing 20 vertices/input points.
- - delvor-ieeesec.pdf contains a detailed description of the algorithm.
+ - Makefile for building the code
+ - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in 2-dimensions containing 20 vertices/input points
+ - delvor-ieeesec.pdf contains a detailed description of the algorithm
 
 ### Compiling and Testing
 
