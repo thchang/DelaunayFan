@@ -72,6 +72,9 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 ! IERR is an integer valued error flag. The error codes are:
 !
 ! 00 : Succesfully computed the entire umbrella neighbourhood.
+! 01 : The provided vertex is a vertex of the convex hull. The umbrella
+!      neighbourhood was still computed, but certain Delaunay facets
+!      are still open.
 !
 ! 10 : The dimension D must be positive.
 ! 11 : Too few data points to construct a triangulation (i.e., N < D+1).
@@ -169,6 +172,7 @@ REAL(KIND=R8) :: EPSL ! Local copy of EPS.
 REAL(KIND=R8) :: MINRAD ! Smallest radius found.
 REAL(KIND=R8) :: SIDE1 ! Side of the hyperplane to flip toward.
 REAL(KIND=R8) :: SIDE2 ! Side of the hyperplane for a point.
+LOGICAL :: HULLPT
 
 ! Local arrays requiring O(d^2) extra memory.
 INTEGER :: IPIV(D) ! Pivot indices.
@@ -245,6 +249,8 @@ IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
 ! Save the first simplex.
 CALL SL%PUSH(SIMP, IERR)
 IF(IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
+! Initialize the convex hull flag.
+HULLPT = .FALSE.
 
 ! Loop for filling all simplices containing the vertex with index V.
 INNER : DO K = 1, IBUDGETL
@@ -273,6 +279,7 @@ INNER : DO K = 1, IBUDGETL
    ! Check for the extrapolation condition.
    IF (SIMP(D+1) .EQ. 0) THEN
       CALL FL%POP(SIMP, IERR)
+      HULLPT = .TRUE.
       IF (IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
       CYCLE INNER
    END IF
@@ -285,6 +292,8 @@ INNER : DO K = 1, IBUDGETL
    IF(IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
 END DO INNER
 
+! Check whether V was a facet of the convex hull.
+IF(HULLPT) IERR = 1
 ! Check for budget violation.
 IF (K > IBUDGETL) THEN; IERR = 20; END IF
 

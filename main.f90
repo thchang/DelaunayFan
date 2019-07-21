@@ -50,11 +50,14 @@ CALL DELAUNAYFAN(D, N, PTS, V, FAN, ERROR, IBUDGET=10000)
 CALL CPU_TIME(FINISH)
 FINISH = FINISH - START
 ! Print the timing results.
-IF(ERROR .EQ. 0) THEN
+IF(ERROR .LE. 1) THEN
    PRINT *, 'Fan: '
    DO I = 1, SIZE(FAN,2)
       PRINT *, FAN(:,I)
    END DO
+   PRINT *, ''
+   IF (ERROR .EQ. 1) PRINT *, 'Vertex ', V, ' is a vertex of the convex hull.'
+   PRINT *, ''
 ELSE
    PRINT *, 'Error. Code = ', ERROR
 END IF
