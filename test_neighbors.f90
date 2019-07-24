@@ -1,26 +1,26 @@
 PROGRAM TEST
-! Driver code for computing a Delaunay simplex containing a given point.
+! Driver code for computing the list of Delaunay neighbors of a given vertex.
 ! Reads a file containing a list of N vertices in R^D and constructs the
 ! umbrella neighbourhood of some vertex in that file.
 ! 
 ! Author: Tyler Chang                                   
 ! Last Update: August, 2017                               
 !
-! Usage :$ ./delfan D N V FILENAME
+! Usage :$ ./delneighbors D N V FILENAME
 !
 ! D is an integer specifying the dimension of problem.
 ! N is an integer specifying the number of lines (vertices) in the file.
 ! V is an integer specifying the index of vertex to compute the umbrella
 !    neighbourhood about.
 ! FILENAME gives the input file path (32 chars max).
-USE DELAUNAYFAN_MOD
+USE DELAUNAYNEIGHBORS_MOD
 IMPLICIT NONE
 
 ! Variables and input data.
 INTEGER :: D, N, V, ERROR
 REAL(KIND=R8), ALLOCATABLE :: PTS(:,:), WEIGHTS(:,:), WORK(:)
 REAL(KIND=R8) :: START, FINISH
-INTEGER, ALLOCATABLE :: FAN(:,:)
+INTEGER, ALLOCATABLE :: NEIGHBORS(:)
 INTEGER :: I, J
 CHARACTER(LEN=80) :: ARG
 
@@ -46,25 +46,24 @@ CLOSE(1)
 
 ! Get the results and record the computation time.
 CALL CPU_TIME(START)
-CALL DELAUNAYFAN(D, N, PTS, V, FAN, ERROR, IBUDGET=10000)
+CALL DELAUNAYNEIGHBORS(D, N, PTS, V, NEIGHBORS, ERROR, IBUDGET=10000)
 CALL CPU_TIME(FINISH)
 FINISH = FINISH - START
 ! Print the timing results.
 IF(ERROR .LE. 1) THEN
-   PRINT *, 'Fan: '
-   DO I = 1, SIZE(FAN,2)
-      PRINT *, FAN(:,I)
-   END DO
+   PRINT *, 'Neighbor List: '
+   PRINT *, NEIGHBORS(:)
    PRINT *, ''
    IF (ERROR .EQ. 1) PRINT *, 'Vertex ', V, ' is a vertex of the convex hull.'
    PRINT *, ''
 ELSE
    PRINT *, 'Error. Code = ', ERROR
 END IF
-PRINT *, 'Fan of ', SIZE(FAN,2), ' simps built in ', FINISH, ' seconds.'
+PRINT *, 'Neighborhood of ', SIZE(NEIGHBORS,1), ' neighbors found in ', &
+       & FINISH, ' seconds.'
 
 ! Free the heap memory.
-DEALLOCATE(PTS, FAN, WORK, STAT=ERROR)
+DEALLOCATE(PTS, NEIGHBORS, WORK, STAT=ERROR)
 IF (ERROR .NE. 0) PRINT *, 'There was an error freeing memory.'
 RETURN
 END PROGRAM TEST

@@ -2,44 +2,45 @@ MODULE REAL_PRECISION ! HOMPACK90 module for 64-bit arithmetic.
 INTEGER, PARAMETER :: R8 = SELECTED_REAL_KIND(13)
 END MODULE REAL_PRECISION
 
-MODULE DELAUNAYFAN_MOD
+MODULE DELAUNAYNEIGHBORS_MOD
 ! This module contains the REAL_PRECISION R8 data type for 64-bit arithmetic
-! and interface blocks for the DELAUNAYFAN subroutine for computing the 
-! umbrella neighbourhood of a vertex V in the Delaunay triangulation of D
+! and interface blocks for the DELAUNAYNEIGHBORS subroutine for computing the 
+! umbrella neighborhood of a vertex V in the Delaunay triangulation of D
 ! dimensions.
 USE REAL_PRECISION
 PUBLIC
 
 INTERFACE
 
-   SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
+   SUBROUTINE DELAUNAYNEIGHBORS( D, N, PTS, V, LIST, IERR, EPS, IBUDGET )
    USE REAL_PRECISION
    ! Input arguments.
    INTEGER, INTENT(IN) :: D, N
    REAL(KIND=R8), INTENT(INOUT) :: PTS(:,:)
    INTEGER, INTENT(IN) :: V
    ! Output arguments.
-   INTEGER, ALLOCATABLE, INTENT(OUT) :: FAN(:,:)
+   INTEGER, ALLOCATABLE, INTENT(OUT) :: LIST(:)
    INTEGER, INTENT(OUT) :: IERR
    ! Optional arguments.
    REAL(KIND=R8), INTENT(IN), OPTIONAL:: EPS
    INTEGER, INTENT(IN), OPTIONAL :: IBUDGET
-   END SUBROUTINE DELAUNAYFAN
+   END SUBROUTINE DELAUNAYNEIGHBORS
 
 END INTERFACE
 
-END MODULE DELAUNAYFAN_MOD
+END MODULE DELAUNAYNEIGHBORS_MOD
 
-SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
-! This is a serial implementation of an algorithm for computing the umbrella
-! neighborhood of a single vertex in R^D in the Delaunay triangulation.
-! The algorithm is fully described and analyzed in
+SUBROUTINE DELAUNAYNEIGHBORS( D, N, PTS, V, LIST, IERR, EPS, IBUDGET )
+! This is a modification of the algorithm proposed in
 !
 ! T. H. Chang, L. T. Watson, T. C.H. Lux, S. Raghvendra, B. Li, L. Xu,
 ! A. R. Butt, K. W. Cameron, and Y. Hong. Computing the umbrella
 ! neighbourhood of a vertex in the Delaunay triangulation and a single
 ! Voronoi cell in arbitrary dimension. In Proceedings of IEEE Southeast
 ! Conference 2018 (SEC 2018). IEEE, St. Petersburg, FL, 2018.
+!
+! for computing the umbrella neighborhood of a single vertex in R^D in
+! the Delaunay triangulation.
 !
 ! Note that this algorithm is NOT robust for degenerate or near degenerate
 ! data. Such inputs will result in an error.
@@ -54,10 +55,11 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 !    coordinates of a single data point in R^D.
 !
 ! V is the index in PTS of the vertex about which to construct the umbrella
-!    neighbourhood.
+!    neighborhood.
 !
-! FAN(:,:) is an unallocated ALLOCATABLE array of type INTEGER that
-!    will be allocated on output.
+! LIST(:) is an unallocated ALLOCATABLE array of type INTEGER that
+!    will be allocated on output, and contain the list of neighbors to vertex
+!    V.
 !
 !
 ! On output:
@@ -65,13 +67,12 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 ! PTS has been rescaled and shifted. All the data points in PTS are now
 !    contained in the unit hyperball in R^D.
 !
-! FAN(1:D+1,1:M) contains the D+1 integer indices (corresponding to columns
-!    in PTS) for the D+1 vertices of each Delaunay simplex in the umbrella
-!    neighbourhood of PTS(:,V).
+! LIST(1:M) contains the integer indices (in PTS) of the M
+!    Delaunay neighbors of PTS(:,V).
 !
 ! IERR is an integer valued error flag. The error codes are:
 !
-! 00 : Succesfully computed the entire umbrella neighbourhood.
+! 00 : Succesfully computed the entire umbrella neighborhood.
 ! 01 : The provided vertex is a vertex of the convex hull. The umbrella
 !      neighbourhood was still computed, but certain Delaunay facets
 !      are still open.
@@ -106,10 +107,8 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 !      WORK.
 ! 51 : A memory related error occurred while managing the active face
 !      list (AFL).
-! 52 : A memory related error occurred while managing the list of
-!      in the umbrella neighborhood.
 ! 53 : A memory allocation error occurred while allocating the output
-!      array FAN.
+!      array NEIGHBOR.
 !
 ! 60 : A value that was judged appropriate later caused LAPACK to encounter a
 !      singularity. Try increasing the value of EPS.
@@ -147,7 +146,7 @@ SUBROUTINE DELAUNAYFAN( D, N, PTS, V, FAN, IERR, EPS, IBUDGET )
 ! 
 ! Primary Author: Tyler H. Chang
 ! Last Update: June, 2019
-USE AFL
+USE AFL, ONLY : FACELIST
 USE REAL_PRECISION
 IMPLICIT NONE
 
@@ -156,7 +155,7 @@ INTEGER, INTENT(IN) :: D, N
 REAL(KIND=R8), INTENT(INOUT) :: PTS(:,:)
 INTEGER, INTENT(IN) :: V
 ! Output arguments.
-INTEGER, ALLOCATABLE, INTENT(OUT) :: FAN(:,:)
+INTEGER, ALLOCATABLE, INTENT(OUT) :: LIST(:)
 INTEGER, INTENT(OUT) :: IERR
 ! Optional arguments.
 REAL(KIND=R8), INTENT(IN), OPTIONAL:: EPS
@@ -167,6 +166,7 @@ INTEGER :: IBUDGETL ! Local copy of IBUDGET.
 INTEGER :: ITMP ! Temporary value for swapping.
 INTEGER :: I, J, K ! Loop iteration variables.
 INTEGER :: LWORK ! Size of WORK array (5*D).
+INTEGER :: LIST_LENGTH ! Length of the neighbor list.
 REAL(KIND=R8) :: CURRRAD ! Radius of the circumball.
 REAL(KIND=R8) :: EPSL ! Local copy of EPS.
 REAL(KIND=R8) :: MINRAD ! Smallest radius found.
@@ -174,9 +174,10 @@ REAL(KIND=R8) :: SIDE1 ! Side of the hyperplane to flip toward.
 REAL(KIND=R8) :: SIDE2 ! Side of the hyperplane for a point.
 LOGICAL :: HULLPT ! Track whether V is a vertex of the convex hull.
 
-! Local arrays requiring O(d^2) extra memory.
+! Local arrays requiring O(d^2 + n) extra memory.
 INTEGER :: IPIV(D) ! Pivot indices.
 INTEGER :: SIMP(D+1) ! Current simplex.
+INTEGER :: LIST_LOCAL(N-1) ! The current list of Delaunay neighbors.
 REAL(KIND=R8) :: AT(D,D) ! The transpose of A, the linear coefficient matrix.
 REAL(KIND=R8) :: B(D) ! The RHS of a linear system.
 REAL(KIND=R8) :: CENTER(D) ! The circumcenter of a simplex.
@@ -186,7 +187,6 @@ REAL(KIND=R8) :: TAU(D) ! Householder reflector constants.
 REAL(KIND=R8), ALLOCATABLE :: WORK(:) ! Work array for DGEQP3 and DORMQR.
 
 ! Dynamic arrays of unknown size from AFL and Vector modules.
-TYPE(INTVECTOR) :: SL
 TYPE(FACELIST) :: FL
 
 ! External functions and subroutines.
@@ -233,11 +233,10 @@ ALLOCATE(WORK(LWORK), STAT=IERR) ! Allocate WORK to size LWORK.
 IF (IERR .NE. 0) THEN ! Check for memory allocation errors.
    IERR = 50; RETURN; END IF
 
-! Initialize the face list (FL) and simplex list (SL).
+! Initialize the face list (FL) and neighbor list.
 FL = FACELIST(DIM=(D+1), IND=V, ISTAT=IERR)
 IF (IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
-SL = INTVECTOR(DIM=(D+1), ISTAT=IERR)
-IF (IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
+LIST_LENGTH = 0
 
 ! Make the first "seed" simplex.
 CALL MAKEFIRSTSIMP()
@@ -247,23 +246,15 @@ CALL SELECTSORTSIMP()
 CALL FL%PUSHSIMP(SIMP, IERR)
 IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
 ! Save the first simplex.
-CALL SL%PUSH(SIMP, IERR)
-IF(IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
+DO I = 2, D+1
+   LIST_LENGTH = LIST_LENGTH + 1
+   LIST_LOCAL(LIST_LENGTH) = SIMP(I)
+END DO
 ! Initialize the convex hull flag.
 HULLPT = .FALSE.
 
 ! Loop for filling all simplices containing the vertex with index V.
 INNER : DO K = 1, IBUDGETL
-!! Debugging statements. Uncomment for step-by-step print out of progress.
-!PRINT *, 'Iteration: ', K
-!PRINT *, 'Simplices:'
-!DO I=1, SL%LENGTH()
-!PRINT *, SL%ITEM(I)
-!END DO
-!PRINT *, 'Faces:'
-!DO I=1, FL%LENGTH()
-!PRINT *, FL%ITEM(I)
-!END DO
    ! Get the top face off the stack, but don't delete it.
    CALL FL%TOP(SIMP, IERR)
    IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
@@ -287,9 +278,15 @@ INNER : DO K = 1, IBUDGETL
    CALL BUBBLESORTSIMP()
    CALL FL%PUSHSIMP(SIMP, IERR)
    IF(IERR .NE. 0) THEN; IERR = 51; RETURN; END IF
-   ! Save the current simplex to the stack.
-   CALL SL%PUSH(SIMP, IERR)
-   IF(IERR .NE. 0) THEN; IERR = 52; RETURN; END IF
+   ! Save the new neighbors discovered.
+   DO I = 2, D+1
+      IF (ANY(LIST_LOCAL(1:LIST_LENGTH) .EQ. SIMP(I))) THEN
+         CYCLE
+      ELSE
+         LIST_LENGTH = LIST_LENGTH + 1
+         LIST_LOCAL(LIST_LENGTH) = SIMP(I)
+      END IF
+   END DO
 END DO INNER
 
 ! Check whether V was a facet of the convex hull.
@@ -298,10 +295,9 @@ IF(HULLPT) IERR = 1
 IF (K > IBUDGETL) THEN; IERR = 20; END IF
 
 ! Copy the fan into the output array.
-ALLOCATE(FAN(D+1,SL%LENGTH()), STAT=I)
+ALLOCATE(LIST(LIST_LENGTH), STAT=I)
 IF(I .NE. 0) THEN; IERR = 53; RETURN; END IF
-FAN(:,:) = SL%DATA()
-CALL SL%FREE()
+LIST(:) = LIST_LOCAL(1:LIST_LENGTH)
 
 ! Free the LAPACK work array.
 DEALLOCATE(WORK)
@@ -599,4 +595,4 @@ MINDIST = MINDIST / SCALE
 RETURN
 END SUBROUTINE RESCALE
 
-END SUBROUTINE DELAUNAYFAN
+END SUBROUTINE DELAUNAYNEIGHBORS

@@ -35,12 +35,22 @@ blas.f and lapack.f.
 ### Contents
 
  - delaunayfan.f90 contains the main subroutine DELAUNAYFAN
+ - delaunayneighbors.f90 contains a slight modification to DELAUNAYFAN,
+   DELAUNAYNEIGHBORS, which returns the indices of the Delaunay neighbors,
+   but not the simplices
  - AFL.f90 contains the source code for the face list data structure described in Chang et. al, as well as a subset of the Vector class (see thchang/VectorClass)
  - blas.f contains a minimal copy of BLAS, containing only the procedures required by delaunayfan.f90
  - lapack.f contains a minimal copy of LAPACK, containing only the procedures required by delaunayfan.f90
- - main.f90 contains driver code generating a command line program for DelaunayFan
+ - test\_fan.f90 contains driver code generating a command line program for
+   DELAUNAYFAN
+ - test\_neighbors.f90 contains driver code generating a command line program
+   for DELAUNAYNEIGHBORS
  - Makefile for building the code using the gfortran compiler
- - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in 2-dimensions containing 20 vertices/input points
+ - SAMPLE-2D-20N.dat contains a pseudo-randomly generated input set in
+   2-dimensions containing 20 vertices/input points
+ - SAMPLE-4D-43N-DEGEN.dat contains a degenerate dataset from a real world
+   problem in 4D with 43 data points. DELAUNAYFAN and DELAUNAYNEIGHBORS
+   throw errors (IERR=40) when run on these datasets.
  - delvor-ieeesec.pdf contains a detailed description of the algorithm
 
 ### Compiling and Testing
