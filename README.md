@@ -91,5 +91,5 @@ To cite this work, use:
 ## Related Work
 
 If you found this work interesting, you may also consider
-htts://github.com/vtopt/DelaunaySparse
+https://github.com/vtopt/DelaunaySparse
 
