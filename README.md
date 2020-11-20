@@ -74,8 +74,22 @@ For other authors, see the reference.
 
 To cite this work, use:
 
-T. H. Chang, L. T. Watson, T. C.H. Lux, S. Raghvendra, B. Li, L. Xu,
-A. R. Butt, K. W. Cameron, and Y. Hong. Computing the umbrella
-neighbourhood of a vertex in the Delaunay triangulation and a single
-Voronoi cell in arbitrary dimension. In Proceedings of IEEE Southeast
-Conference 2018 (SEC 2018). IEEE, St. Petersburg, FL, 2018.
+```
+@inproceedings{chang2018computing,
+   author={T. H. Chang and L. T. Watson and T. C. H. Lux and S. Raghvendra and B. Li and L. Xu and A. R. Butt and K. W. Cameron and Y. Hong},
+   booktitle={Proceedings of SoutheastCon 2018},
+   title={Computing the Umbrella Neighbourhood of a Vertex in the {D}elaunay Triangulation and a Single {V}oronoi Cell in Arbitrary Dimension},
+   year={2018},
+   pages={1-8},
+   publisher = {IEEE},
+   location = {St. Petersburg, FL, USA},
+   doi={10.1109/SECON.2018.8479003},
+   month={April}
+}
+```
+
+## Related Work
+
+If you found this work interesting, you may also consider
+htts://github.com/vtopt/DelaunaySparse
+
